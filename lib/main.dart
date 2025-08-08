@@ -108,8 +108,10 @@ class _RecordingScreenState extends State<RecordingScreen> {
       setState(() {
         _isRecording = false;
         _statusText = '錄音已儲存，等待喚醒詞...';
-        _currentShape = ShapeType.flower;
+        _currentShape = ShapeType.circleGrid;
         scale = 1.5;
+        _currentAnimationState = AnimationState.rotate45andPause;
+        _sendToApi();
       });
     }
   }
@@ -163,6 +165,9 @@ class _RecordingScreenState extends State<RecordingScreen> {
         File(_responseAudioPath).writeAsBytesSync(response.bodyBytes);
 
         setState(() => _statusText = '伺服器回應已儲存並播放 response.wav');
+        _currentShape = ShapeType.flower;
+        scale = 1.5;
+        _currentAnimationState = AnimationState.continuousRotation;
         await _responsePlayer.startPlayer(fromURI: _responseAudioPath, codec: Codec.pcm16WAV);
       } else {
         setState(() => _statusText = '上傳失敗：HTTP ${response.statusCode}');
@@ -215,15 +220,15 @@ class _RecordingScreenState extends State<RecordingScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _playLastRecording,
-                child: Text('播放最後一次錄音'),
-              ),
-              const SizedBox(height: 10),
-              ElevatedButton(
-                onPressed: _sendToApi,
-                child: Text('送出到 API 並播放結果'),
-              ),
+              // ElevatedButton(
+              //   onPressed: _playLastRecording,
+              //   child: Text('播放最後一次錄音'),
+              // ),
+              // const SizedBox(height: 10),
+              // ElevatedButton(
+              //   onPressed: _sendToApi,
+              //   child: Text('送出到 API 並播放結果'),
+              // ),
             ],
           ),
         ),
