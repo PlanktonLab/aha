@@ -9,34 +9,42 @@ import 'dart:io';
 import 'thinkShape.dart';
 
 void main() {
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return const MaterialApp(
       home: RecordingScreen(),
     );
   }
 }
 
 class RecordingScreen extends StatefulWidget {
+  const RecordingScreen({super.key});
+
   @override
   _RecordingScreenState createState() => _RecordingScreenState();
 }
 
 class _RecordingScreenState extends State<RecordingScreen> {
   PorcupineManager? _porcupineManager;
-  final String _accessKey = "MBSJcPFRjHf6XxNKAtt2bGxESf6x/xKJYjphhys6elq86hMEs0dwGg==";
+  final String _accessKey = "U9jgjZuhwycgzA0uAWMztf2/pjcPCd3jJOiRzgOh5dI67tjkTK6/Zw==";
   String _statusText = 'Porcupine 正在初始化中...';
 
   bool _isRecording = false;
   String _lastAudioPath = '';
   String _responseAudioPath = '';
-  final ap.AudioPlayer _audioPlayer = ap.AudioPlayer();
+
+  // Recorder and Player from the same package to avoid conflicts.
   final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
-  final FlutterSoundPlayer _responsePlayer = FlutterSoundPlayer();
+  final FlutterSoundPlayer _player = FlutterSoundPlayer();
+
+  // Kept for the debug function `_playLastRecording`
+  final ap.AudioPlayer _audioPlayer = ap.AudioPlayer();
 
   ShapeType _currentShape = ShapeType.flower;
   AnimationState _currentAnimationState = AnimationState.continuousRotation;
@@ -47,7 +55,17 @@ class _RecordingScreenState extends State<RecordingScreen> {
     super.initState();
     _initPorcupineManager();
     _initializeRecorder();
-    _responsePlayer.openPlayer();
+    _player.openPlayer(); // Initialize the player
+  }
+
+  @override
+  void dispose() {
+    _porcupineManager?.stop();
+    _porcupineManager?.delete();
+    _recorder.closeRecorder();
+    _player.closePlayer(); // Dispose the player
+    _audioPlayer.dispose();
+    super.dispose();
   }
 
   void _initializeRecorder() async {
@@ -57,39 +75,44 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
   void _initPorcupineManager() async {
     try {
-      String modelAssetPath = 'assets/porcupine_params_zh.pv';
-
       _porcupineManager = await PorcupineManager.fromKeywordPaths(
         _accessKey,
-        ["assets/啊哈擰後_android.ppn"],
+        ["assets/啊哈擰後_zh_ios_v3_0_0.ppn"],
         _wakeWordCallback,
-        modelPath: modelAssetPath,
+        modelPath: 'assets/porcupine_params_zh.pv',
         errorCallback: _errorCallback,
         sensitivities: [0.7],
       );
 
+      await _porcupineManager!.start();
       setState(() {
         _statusText = 'Porcupine 已就緒，等待喚醒詞...';
       });
-
-      await _porcupineManager!.start();
     } on PorcupineException catch (err) {
       setState(() {
         _statusText = '初始化錯誤: ${err.message}';
       });
-      print("Porcupine 初始化錯誤: ${err.message}");
     }
   }
 
-  void _wakeWordCallback(int keywordIndex) async {
+  void _wakeWordCallback(int keywordIndex) {
     print("偵測到喚醒詞！關鍵字索引: $keywordIndex");
-    _toggleRecording();
+    if (mounted) {
+      _toggleRecording();
+    }
   }
+
+  // In _RecordingScreenState class
 
   void _toggleRecording() async {
     if (!_isRecording) {
+      // ... (this part remains the same)
       final tempDir = Directory.systemTemp;
       _lastAudioPath = '${tempDir.path}/last_record.aac';
+
+      // Make sure recorder is open before starting
+      await _recorder.openRecorder();
+      await _porcupineManager?.start();
 
       await _recorder.startRecorder(
         toFile: _lastAudioPath,
@@ -105,94 +128,99 @@ class _RecordingScreenState extends State<RecordingScreen> {
     } else {
       await _recorder.stopRecorder();
 
+      // --- Start of the Change ---
+      // Immediately stop Porcupine and close the recorder after recording is finished.
+      print("Recording stopped. Releasing audio resources...");
+      await _porcupineManager?.stop();
+      await _recorder.closeRecorder();
+      // --- End of the Change ---
+
       setState(() {
         _isRecording = false;
-        _statusText = '錄音已儲存，等待喚醒詞...';
+        _statusText = '錄音已儲存，正在處理...';
         _currentShape = ShapeType.circleGrid;
         scale = 1.5;
         _currentAnimationState = AnimationState.rotate45andPause;
-        _sendToApi();
       });
+      // Now, call the API function.
+      _sendToApi();
     }
   }
 
+  // This is a debug function, you can keep it or remove it.
   void _playLastRecording() async {
-    if (_lastAudioPath.isNotEmpty && File(_lastAudioPath).existsSync()) {
-      try {
-        await _audioPlayer.play(ap.DeviceFileSource(_lastAudioPath));
-        setState(() {
-          _statusText = '正在播放最後一次錄音...';
-        });
-      } catch (e) {
-        setState(() {
-          _statusText = '播放失敗：${e.toString()}';
-        });
-      }
-    } else {
-      setState(() {
-        _statusText = '沒有可播放的錄音。';
-      });
+    if (_lastAudioPath.isNotEmpty && await File(_lastAudioPath).exists()) {
+      await _player.startPlayer(fromURI: _lastAudioPath);
     }
   }
 
-  // ==== 這裡開始是修改過的函式 ====
+  // ==== Fully revised function using only flutter_sound ====
+  // In _RecordingScreenState class
+
   void _sendToApi() async {
-    if (_lastAudioPath.isEmpty || !File(_lastAudioPath).existsSync()) {
+    if (_lastAudioPath.isEmpty || !await File(_lastAudioPath).exists()) {
       setState(() => _statusText = '找不到錄音檔');
       return;
     }
 
-    final uri = Uri.parse('https://hakka.chilljudge.com/hakka-assistant/');
-    final request = http.MultipartRequest('POST', uri)
-      ..files.add(await http.MultipartFile.fromPath('audio_file', _lastAudioPath))
-      ..fields['dummy'] = 'value';
-
     setState(() => _statusText = '正在傳送錄音至伺服器...');
 
     try {
-      // 發送請求，得到一個 StreamedResponse
+      final uri = Uri.parse('https://hakka.chilljudge.com/hakka-assistant/');
+      final request = http.MultipartRequest('POST', uri)
+        ..files.add(await http.MultipartFile.fromPath('audio_file', _lastAudioPath));
       final streamedResponse = await request.send();
-
-      // 從 StreamedResponse 讀取一次完整的回應，並儲存到 response 變數
       final response = await http.Response.fromStream(streamedResponse);
 
       print("Response status: ${response.statusCode}");
-      print("Response body: ${response.body}");
 
       if (response.statusCode == 200) {
         _responseAudioPath = '${Directory.systemTemp.path}/response.wav';
-        // 使用已儲存的 response 變數，寫入檔案
-        File(_responseAudioPath).writeAsBytesSync(response.bodyBytes);
+        await File(_responseAudioPath).writeAsBytes(response.bodyBytes);
 
-        setState(() => _statusText = '伺服器回應已儲存並播放 response.wav');
-        _currentShape = ShapeType.flower;
-        scale = 1.5;
-        _currentAnimationState = AnimationState.continuousRotation;
-        await _responsePlayer.startPlayer(fromURI: _responseAudioPath, codec: Codec.pcm16WAV);
+        // --- Start of the Change ---
+        // The following two lines are now REMOVED from here.
+        // await _porcupineManager?.stop();
+        // await _recorder.closeRecorder();
+        // --- End of the Change ---
+
+        await _player.startPlayer(
+          fromURI: _responseAudioPath,
+          whenFinished: () {
+            print("Playback complete. Re-initializing...");
+            // Open recorder and start porcupine for the next turn.
+            _recorder.openRecorder();
+            _porcupineManager?.start();
+            if (mounted) {
+              setState(() => _statusText = '播放完畢，等待喚醒詞...');
+            }
+          },
+        );
+
+        if (mounted) {
+          setState(() {
+            _statusText = '正在播放回應...';
+            _currentShape = ShapeType.flower;
+            scale = 1.5;
+            _currentAnimationState = AnimationState.continuousRotation;
+          });
+        }
       } else {
-        setState(() => _statusText = '上傳失敗：HTTP ${response.statusCode}');
+        throw Exception('上傳失敗：HTTP ${response.statusCode}');
       }
     } catch (e) {
-      setState(() => _statusText = '上傳錯誤：$e');
+      print('An error occurred: $e');
+      setState(() => _statusText = '處理錯誤，請重試');
+      // On error, we still need to re-open resources for the next try.
+      _recorder.openRecorder();
+      _porcupineManager?.start();
     }
   }
-  // ==== 這裡結束是修改過的函式 ====
 
   void _errorCallback(PorcupineException error) {
     setState(() {
       _statusText = 'Porcupine 發生錯誤: ${error.message}';
     });
-    print("Porcupine 回呼錯誤: ${error.message}");
-  }
-
-  @override
-  void dispose() {
-    _porcupineManager?.stop();
-    _porcupineManager?.delete();
-    _audioPlayer.dispose();
-    _recorder.closeRecorder();
-    _responsePlayer.closePlayer();
-    super.dispose();
   }
 
   @override
@@ -219,16 +247,6 @@ class _RecordingScreenState extends State<RecordingScreen> {
                   scale: scale,
                 ),
               ),
-              const SizedBox(height: 20),
-              // ElevatedButton(
-              //   onPressed: _playLastRecording,
-              //   child: Text('播放最後一次錄音'),
-              // ),
-              // const SizedBox(height: 10),
-              // ElevatedButton(
-              //   onPressed: _sendToApi,
-              //   child: Text('送出到 API 並播放結果'),
-              // ),
             ],
           ),
         ),
