@@ -98,8 +98,8 @@ class _AnimatedShapeWidgetState extends State<AnimatedShapeWidget> with SingleTi
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 300,
-      height: 300,
+      width: 200,
+      height: 200,
       child: AnimatedBuilder(
         animation: _currentRotationAnimation, // 監聽動畫本身
         builder: (context, child) {

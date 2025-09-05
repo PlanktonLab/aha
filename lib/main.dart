@@ -6,6 +6,8 @@ import 'package:flutter_sound/flutter_sound.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 import 'dart:io';
+import 'dart:convert';
+import 'package:flutter/services.dart' show rootBundle;
 import 'thinkShape.dart';
 
 // 相機
@@ -37,7 +39,7 @@ class RecordingScreen extends StatefulWidget {
 
 class _RecordingScreenState extends State<RecordingScreen> {
   PorcupineManager? _porcupineManager;
-  final String _accessKey = "MBSJcPFRjHf6XxNKAtt2bGxESf6x/xKJYjphhys6elq86hMEs0dwGg==";
+  final String _accessKey = "MBSJcPFRjHf6XxNKAtt2bGxESf6x/xKJYjphhys66hMEs0dwGg==";
   String _statusText = 'Porcupine 正在初始化中...';
 
   bool _isRecording = false;
@@ -109,7 +111,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
       await _recorder.startRecorder(
         toFile: _lastAudioPath,
         codec: Codec.aacADTS,
-        // （可選）若要降低上傳大小，也可打開這些參數：
+        // 可選：降低大小
         // bitRate: 64000,
         // sampleRate: 16000,
         // numChannels: 1,
@@ -156,24 +158,20 @@ class _RecordingScreenState extends State<RecordingScreen> {
     }
   }
 
-  /// 將擷取到的照片壓縮：長邊 ~1280px、品質 70，輸出 JPEG。
+  /// 壓縮擷取到的照片：長邊 ~1280px、品質 70，輸出 JPEG。
   Future<String?> _compressImageIfAny(String? imagePath) async {
     if (imagePath == null) return null;
     try {
-      // 先估算原始大小
       final orig = await File(imagePath).length();
-      // 暫存輸出路徑
       final out = '${Directory.systemTemp.path}/shot_compressed_q70.jpg';
 
       final result = await FlutterImageCompress.compressAndGetFile(
         imagePath, out,
-        // 使用 minWidth/minHeight 讓最短邊至少到這個值，通常能把長邊控制在 ~1280 左右
-        // 若你想更嚴格控制長邊，可自行計算等比縮放後傳給 compressWithList。
         minWidth: 1280,
         minHeight: 720,
         quality: 70,
         format: CompressFormat.jpeg,
-        keepExif: true, // 保留 EXIF（若不需要可設 false）
+        keepExif: true,
       );
 
       if (result != null && File(result.path).existsSync()) {
@@ -184,11 +182,23 @@ class _RecordingScreenState extends State<RecordingScreen> {
     } catch (e) {
       debugPrint('圖片壓縮失敗：$e');
     }
-    // 壓縮失敗就回傳原圖路徑
     return imagePath;
   }
 
-  /// ★ 上傳：若相機開著就拍照，拍到後先壓縮再與音檔一起上傳
+  /// 內部共用的上傳函式（可重試）
+  Future<http.Response> uploadOnce({required String audioPath, String? imgPath, String? prompt}) async {
+    final uri = Uri.parse('https://hakka.chilljudge.com/hakka-assistant/');
+    final request = http.MultipartRequest('POST', uri)
+      ..files.add(await http.MultipartFile.fromPath('audio_file', audioPath))
+      ..fields['prompt'] = prompt ?? '';
+    if (imgPath != null) {
+      request.files.add(await http.MultipartFile.fromPath('image_file', imgPath));
+    }
+    final streamed = await request.send();
+    return http.Response.fromStream(streamed);
+  }
+
+  /// 上傳：若相機開著就拍照、壓縮，再與音檔一起上傳
   Future<void> _sendToApi() async {
     if (_lastAudioPath.isEmpty || !File(_lastAudioPath).existsSync()) {
       setState(() => _statusText = '找不到錄音檔');
@@ -197,21 +207,23 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
     setState(() => _statusText = '正在準備上傳...');
 
-    // 1) 嘗試擷取照片
+    // 相機未展開就不上傳照片
     String? imagePath;
-    try {
-      final panelState = _camKey.currentState;
-      if (panelState != null && panelState.isReady) {
-        final shot = await panelState.captureStill();
-        if (shot != null && File(shot.path).existsSync()) {
-          imagePath = shot.path;
+    if (_camExpanded) {
+      try {
+        final panelState = _camKey.currentState;
+        if (panelState != null && panelState.isReady) {
+          final shot = await panelState.captureStill();
+          if (shot != null && File(shot.path).existsSync()) {
+            imagePath = shot.path;
+          }
         }
+      } catch (e) {
+        debugPrint('擷取相片失敗：$e');
       }
-    } catch (e) {
-      debugPrint('擷取相片失敗：$e');
     }
 
-    // 2) 壓縮照片（若有拍到）
+    // 壓縮照片（若有）
     if (imagePath != null) {
       imagePath = await _compressImageIfAny(imagePath);
     }
@@ -219,33 +231,28 @@ class _RecordingScreenState extends State<RecordingScreen> {
     // 除錯資訊
     final audioBytes = await File(_lastAudioPath).length();
     final imageBytes = imagePath != null ? await File(imagePath).length() : 0;
-    debugPrint('即將上傳 -> audio: ${(audioBytes/1024).toStringAsFixed(1)}KB, '
-        'image: ${(imageBytes/1024).toStringAsFixed(1)}KB');
-
-    // 內部共用的上傳函式（可重試）
-    Future<http.Response> uploadOnce({required String audioPath, String? imgPath}) async {
-      final uri = Uri.parse('https://hakka.chilljudge.com/hakka-assistant/');
-      final request = http.MultipartRequest('POST', uri)
-        ..files.add(await http.MultipartFile.fromPath('audio_file', audioPath))
-        ..fields['dummy'] = 'value';
-      if (imgPath != null) {
-        request.files.add(await http.MultipartFile.fromPath('image_file', imgPath));
-      }
-      final streamed = await request.send();
-      return http.Response.fromStream(streamed);
-    }
+    debugPrint('即將上傳 -> audio: ${(audioBytes/1024).toStringAsFixed(1)}KB, image: ${(imageBytes/1024).toStringAsFixed(1)}KB');
 
     setState(() => _statusText = '正在上傳（含壓縮圖片）...');
 
+    // 讀取 Prompt
+    String userPrompt = '';
+    try {
+      userPrompt = await rootBundle.loadString('lib/prompt.txt');
+    } catch (e) {
+      debugPrint('讀取 prompt.txt 失敗：$e');
+      userPrompt = '請將我的華語音訊內容翻譯成客語。';
+    }
+
     http.Response response;
     try {
-      response = await uploadOnce(audioPath: _lastAudioPath, imgPath: imagePath);
+      response = await uploadOnce(audioPath: _lastAudioPath, imgPath: imagePath, prompt: userPrompt);
     } catch (e) {
       setState(() => _statusText = '上傳錯誤：$e');
       return;
     }
 
-    // 若伺服器依然回 413，再做更激進一次壓縮重試（或改為只上傳音檔）
+    // 413：再壓縮或只上傳音檔
     if (response.statusCode == 413 && imagePath != null) {
       debugPrint('回 413 → 再壓縮一次並重傳');
       setState(() => _statusText = '伺服器回 413，嘗試更高壓縮後重傳...');
@@ -264,33 +271,139 @@ class _RecordingScreenState extends State<RecordingScreen> {
             ? compressed2.path
             : imagePath;
 
-        response = await uploadOnce(audioPath: _lastAudioPath, imgPath: smallerPath);
+        response = await uploadOnce(audioPath: _lastAudioPath, imgPath: smallerPath, prompt: userPrompt);
       } catch (e) {
         debugPrint('二次壓縮或重傳失敗：$e，改為只上傳音檔。');
-        response = await uploadOnce(audioPath: _lastAudioPath, imgPath: null);
+        response = await uploadOnce(audioPath: _lastAudioPath, imgPath: null, prompt: userPrompt);
       }
     }
 
     if (response.statusCode == 413) {
       setState(() => _statusText = '仍為 413，改為只上傳音檔...');
-      response = await uploadOnce(audioPath: _lastAudioPath, imgPath: null);
+      response = await uploadOnce(audioPath: _lastAudioPath, imgPath: null, prompt: userPrompt);
     }
 
     if (response.statusCode == 200) {
+      print("----------------------------------");
+      print(response.body);
+      if (response.body.contains('error')) {
+        setState(() => _statusText = '阿客現在不在');
+        _currentShape = ShapeType.flower;
+        scale = 1.5;
+        _currentAnimationState = AnimationState.continuousRotation;
+      } else {
+        _currentShape = ShapeType.flower;
+        scale = 1.5;
+        _currentAnimationState = AnimationState.continuousRotation;
+
+        Future.wait([
+          _playResponseAudio(response.bodyBytes),
+          _getGeminiText(), // 這裡會負責解析 + 導向整頁步驟
+        ]).catchError((e) {
+          debugPrint('處理回應時發生錯誤：$e');
+          setState(() {
+            _statusText = '處理回應時發生錯誤。';
+          });
+        });
+      }
+    } else {
+      setState(() => _statusText = '上傳失敗：HTTP ${response.statusCode}');
+    }
+  }
+
+  // 播放語音
+  Future<void> _playResponseAudio(List<int> audioBytes) async {
+    try {
       _responseAudioPath = '${Directory.systemTemp.path}/response.wav';
-      File(_responseAudioPath).writeAsBytesSync(response.bodyBytes);
-
-      setState(() => _statusText = '伺服器回應已儲存並播放 response.wav');
-      _currentShape = ShapeType.flower;
-      scale = 1.5;
-      _currentAnimationState = AnimationState.continuousRotation;
-
+      File(_responseAudioPath).writeAsBytesSync(audioBytes);
       await _responsePlayer.startPlayer(
         fromURI: _responseAudioPath,
         codec: Codec.pcm16WAV,
       );
-    } else {
-      setState(() => _statusText = '上傳失敗：HTTP ${response.statusCode}');
+    } catch (e) {
+      debugPrint('播放語音發生錯誤：$e');
+    }
+  }
+
+  // 取得文字 + 偵測 step → 導向整頁 StepsPage
+  Future<void> _getGeminiText() async {
+    try {
+      final resultResponse = await http.get(Uri.parse('https://hakka.chilljudge.com/hakka-assistant/result/'));
+      if (resultResponse.statusCode != 200) return;
+
+      final jsonBody = json.decode(resultResponse.body) as Map<String, dynamic>;
+
+      // 伺服器回傳結構中的 "gemini_response" 可能是 ```json 包裹的字串
+      String geminiResponse = jsonBody['gemini_response'] as String? ?? '';
+
+      // 去掉 ```json ... ```
+      geminiResponse = geminiResponse.replaceAll("json", '');
+      if (geminiResponse.startsWith('```')) {
+        geminiResponse = geminiResponse.substring(3);
+      }
+      if (geminiResponse.endsWith('```')) {
+        geminiResponse = geminiResponse.substring(0, geminiResponse.length - 3);
+      }
+
+      Map<String, dynamic> parsedResponse;
+      try {
+        parsedResponse = json.decode(geminiResponse) as Map<String, dynamic>;
+      } catch (_) {
+        // 保底：若後端已把 answer/step 放在頂層
+        if (jsonBody['answer'] is Map<String, dynamic>) {
+          parsedResponse = {
+            'answer': jsonBody['answer'],
+            if (jsonBody['step'] != null) 'step': jsonBody['step'],
+          };
+        } else {
+          return;
+        }
+      }
+
+      // 顯示必填 answer.content
+      final answerMap = parsedResponse['answer'] as Map<String, dynamic>?;
+      final answerContent = (answerMap?['content'] as String?)?.trim() ?? '';
+      if (answerContent.isNotEmpty && mounted) {
+        setState(() {
+          _statusText = answerContent;
+        });
+      }
+
+      // 若包含 step.modules → 解析成資料模型並整頁導向
+      final step = parsedResponse['step'];
+      if (step is Map<String, dynamic>) {
+        final modules = step['modules'];
+        if (modules is List && modules.isNotEmpty && mounted) {
+          final steps = <StepModule>[];
+          for (final m in modules) {
+            if (m is Map<String, dynamic>) {
+              final title = (m['title'] as String?)?.trim() ?? '';
+              final content = (m['content'] as String?)?.trim() ?? '';
+              if (title.isNotEmpty) {
+                steps.add(StepModule(title: title, content: content));
+              }
+            }
+          }
+          if (steps.isNotEmpty) {
+            // 導向全新頁面
+            // 可把 recognized_text / timestamp 一起傳過去顯示
+            final recognizedText = jsonBody['recognized_text'] as String? ?? '';
+            if (!mounted) return;
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => StepsPage(
+                  title: '教學步驟',
+                  introText: answerContent,
+                  recognizedText: recognizedText,
+                  steps: steps,
+                ),
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('取得回應文字發生錯誤：$e');
     }
   }
 
@@ -312,7 +425,6 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 展開時「花變小」與「間距變小」
     final double effectiveScale = _camExpanded ? (scale * 0.5) : scale;
 
     return Scaffold(
@@ -329,6 +441,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                   style: const TextStyle(color: Colors.white, fontSize: 16),
                   textAlign: TextAlign.center,
                 ),
+                SizedBox(height: _camExpanded ? 0 : 50),
 
                 // 花 & 間距動畫
                 AnimatedSize(
@@ -355,7 +468,9 @@ class _RecordingScreenState extends State<RecordingScreen> {
                   ),
                 ),
 
-                // 相機面板（用 key 讓父層可拍照）
+                SizedBox(height: _camExpanded ? 0 : 50),
+
+                // 相機面板
                 ExpandableCameraPanel(
                   key: _camKey,
                   onExpandedChanged: (v) => setState(() => _camExpanded = v),
@@ -370,13 +485,187 @@ class _RecordingScreenState extends State<RecordingScreen> {
   }
 }
 
+/// ======= 步驟資料模型 =======
+class StepModule {
+  final String title;
+  final String content;
+  StepModule({required this.title, required this.content});
+}
+
+/// ======= 整頁步驟頁（依你的 UI 風格）=======
+class StepsPage extends StatelessWidget {
+  final String title;              // 頁面標題（例如：教學步驟）
+  final String introText;          // answer.content 的開場文字
+  final String recognizedText;     // 可選：使用者原始需求
+  final List<StepModule> steps;
+
+  const StepsPage({
+    super.key,
+    required this.title,
+    required this.introText,
+    required this.recognizedText,
+    required this.steps,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const darkBg = Color.fromARGB(255, 15, 35, 59);
+    const cardBg = Color.fromARGB(255, 45, 75, 99);
+    const innerBg = Color.fromARGB(255, 79, 107, 127);
+
+    return Scaffold(
+      backgroundColor: darkBg,
+      appBar: AppBar(
+        backgroundColor: darkBg,
+        elevation: 0,
+        foregroundColor: Colors.white,
+        title: Text(title, style: const TextStyle(color: Colors.white)),
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          children: [
+            // 開場文字（answer.content）
+            if (introText.isNotEmpty)
+              _IntroBubble(text: introText),
+
+            const SizedBox(height: 16),
+
+            // （可選）顯示使用者原句
+            if (recognizedText.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  '你的需求：$recognizedText',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ),
+
+            // 步驟卡片
+            for (int i = 0; i < steps.length; i++) ...[
+              _StepCard(
+                index: i + 1,
+                title: steps[i].title,
+                content: steps[i].content,
+                cardBg: cardBg,
+                innerBg: innerBg,
+              ),
+              const SizedBox(height: 14),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _IntroBubble extends StatelessWidget {
+  final String text;
+  const _IntroBubble({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      decoration: BoxDecoration(
+        color: const Color.fromARGB(255, 26, 49, 74),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 2, right: 10),
+            child: Icon(Icons.local_florist, color: Colors.white, size: 20),
+          ),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(color: Colors.white, fontSize: 16, height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StepCard extends StatelessWidget {
+  final int index;
+  final String title;
+  final String content;
+  final Color cardBg;
+  final Color innerBg;
+
+  const _StepCard({
+    required this.index,
+    required this.title,
+    required this.content,
+    required this.cardBg,
+    required this.innerBg,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black26,
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          )
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 標頭：步驟號 + 標題
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: Colors.white24,
+                child: Text(
+                  '$index',
+                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // 內容塊（淺灰、圓角）
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            decoration: BoxDecoration(
+              color: innerBg,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Text(
+              content.isNotEmpty ? content : '（這步驟沒有詳細說明）',
+              style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.5),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// ===============================
 /// 可展開的相機面板
-/// - 按鈕置中
-/// - 點擊展開：螢幕寬＆高的 3/4
-/// - 顯示相機畫面；再點畫面關閉
-/// - 切換縮放＋淡入、預覽完成淡入
-/// - 提供 captureStill() 與 isReady
 /// ===============================
 class ExpandableCameraPanel extends StatefulWidget {
   final ValueChanged<bool>? onExpandedChanged;
@@ -454,7 +743,6 @@ class _ExpandableCameraPanelState extends State<ExpandableCameraPanel> {
   }
 
   void _close() {
-    // 關閉釋放相機；若想保留相機加速下次展開，可註解掉以下三行
     _controller?.dispose();
     _controller = null;
     _initFuture = null;
