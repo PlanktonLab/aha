@@ -1,0 +1,113 @@
+PODS:
+  - audioplayers_darwin (0.0.1):
+    - Flutter
+  - camera_avfoundation (0.0.1):
+    - Flutter
+  - Flutter (1.0.0)
+  - flutter_image_compress_common (1.0.0):
+    - Flutter
+    - Mantle
+    - SDWebImage
+    - SDWebImageWebPCoder
+  - flutter_sound (9.28.0):
+    - Flutter
+    - flutter_sound_core (= 9.28.0)
+  - flutter_sound_core (9.28.0)
+  - flutter_voice_processor (1.1.2):
+    - Flutter
+    - ios-voice-processor (~> 1.2.0)
+  - ios-voice-processor (1.2.0)
+  - libwebp (1.5.0):
+    - libwebp/demux (= 1.5.0)
+    - libwebp/mux (= 1.5.0)
+    - libwebp/sharpyuv (= 1.5.0)
+    - libwebp/webp (= 1.5.0)
+  - libwebp/demux (1.5.0):
+    - libwebp/webp
+  - libwebp/mux (1.5.0):
+    - libwebp/demux
+  - libwebp/sharpyuv (1.5.0)
+  - libwebp/webp (1.5.0):
+    - libwebp/sharpyuv
+  - Mantle (2.2.0):
+    - Mantle/extobjc (= 2.2.0)
+  - Mantle/extobjc (2.2.0)
+  - path_provider_foundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
+  - permission_handler_apple (9.3.0):
+    - Flutter
+  - Porcupine-iOS (3.0.4):
+    - ios-voice-processor (~> 1.2.0)
+  - porcupine_flutter (3.0.5):
+    - Flutter
+    - Porcupine-iOS (~> 3.0.4)
+  - SDWebImage (5.21.2):
+    - SDWebImage/Core (= 5.21.2)
+  - SDWebImage/Core (5.21.2)
+  - SDWebImageWebPCoder (0.14.6):
+    - libwebp (~> 1.0)
+    - SDWebImage/Core (~> 5.17)
+
+DEPENDENCIES:
+  - audioplayers_darwin (from `.symlinks/plugins/audioplayers_darwin/ios`)
+  - camera_avfoundation (from `.symlinks/plugins/camera_avfoundation/ios`)
+  - Flutter (from `Flutter`)
+  - flutter_image_compress_common (from `.symlinks/plugins/flutter_image_compress_common/ios`)
+  - flutter_sound (from `.symlinks/plugins/flutter_sound/ios`)
+  - flutter_voice_processor (from `.symlinks/plugins/flutter_voice_processor/ios`)
+  - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
+  - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
+  - porcupine_flutter (from `.symlinks/plugins/porcupine_flutter/ios`)
+
+SPEC REPOS:
+  trunk:
+    - flutter_sound_core
+    - ios-voice-processor
+    - libwebp
+    - Mantle
+    - Porcupine-iOS
+    - SDWebImage
+    - SDWebImageWebPCoder
+
+EXTERNAL SOURCES:
+  audioplayers_darwin:
+    :path: ".symlinks/plugins/audioplayers_darwin/ios"
+  camera_avfoundation:
+    :path: ".symlinks/plugins/camera_avfoundation/ios"
+  Flutter:
+    :path: Flutter
+  flutter_image_compress_common:
+    :path: ".symlinks/plugins/flutter_image_compress_common/ios"
+  flutter_sound:
+    :path: ".symlinks/plugins/flutter_sound/ios"
+  flutter_voice_processor:
+    :path: ".symlinks/plugins/flutter_voice_processor/ios"
+  path_provider_foundation:
+    :path: ".symlinks/plugins/path_provider_foundation/darwin"
+  permission_handler_apple:
+    :path: ".symlinks/plugins/permission_handler_apple/ios"
+  porcupine_flutter:
+    :path: ".symlinks/plugins/porcupine_flutter/ios"
+
+SPEC CHECKSUMS:
+  audioplayers_darwin: ccf9c770ee768abb07e26d90af093f7bab1c12ab
+  camera_avfoundation: be3be85408cd4126f250386828e9b1dfa40ab436
+  Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
+  flutter_image_compress_common: 1697a328fd72bfb335507c6bca1a65fa5ad87df1
+  flutter_sound: b9236a5875299aaa4cef1690afd2f01d52a3f890
+  flutter_sound_core: 427465f72d07ab8c3edbe8ffdde709ddacd3763c
+  flutter_voice_processor: f60363f959515eaebc35bcaaf26017596c953fc6
+  ios-voice-processor: 6b5ca08962f39e434fe39dca0f483d923a3b1b97
+  libwebp: 02b23773aedb6ff1fd38cec7a77b81414c6842a8
+  Mantle: c5aa8794a29a022dfbbfc9799af95f477a69b62d
+  path_provider_foundation: 080d55be775b7414fd5a5ef3ac137b97b097e564
+  permission_handler_apple: 4ed2196e43d0651e8ff7ca3483a069d469701f2d
+  Porcupine-iOS: da103a8848ce6b36acd4a5e42bb811d4532dd515
+  porcupine_flutter: ce8290709f290b2a1c817c05ce607061d00ab540
+  SDWebImage: 9f177d83116802728e122410fb25ad88f5c7608a
+  SDWebImageWebPCoder: e38c0a70396191361d60c092933e22c20d5b1380
+
+PODFILE CHECKSUM: 4305caec6b40dde0ae97be1573c53de1882a07e5
+
+COCOAPODS: 1.16.2
